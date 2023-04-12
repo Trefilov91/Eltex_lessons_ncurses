@@ -51,6 +51,7 @@ enum windows {
 
 int check_file_type(char *dir, char *file);
 void update_current_dir(struct dirent ** namelist, int file, char *dir);
+int scan_dir(struct dirent ***p_namelist, int *files, char *dir);
 void update_window(WINDOW * wnd, struct dirent ** namelist, int files);
 void print_error_msg(char *error_msg);
 
@@ -164,21 +165,9 @@ int main()
                 update_current_dir(namelist[current_wnd], current_file, current_dir[second_wnd]);
                 current_wnd = second_wnd; 
 
-                while (files_number[current_wnd]--) 
-                {
-                    free(namelist[current_wnd][files_number[current_wnd]]);
-                }
-                free(namelist[current_wnd]);
+                if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
+                    break;
 
-                files_number[current_wnd] = scandir(current_dir[current_wnd], &namelist[current_wnd], no_rule, alphasort);
-                if (files_number[current_wnd] < 0)
-                {
-                    error_msg = strerror(errno);
-                    move(window_strings + 3, window_columns+2 - strlen(error_msg)/2);
-                    printw("%s", error_msg);
-                    refresh();
-                    return RETURN_ERR; 
-                } 
                 update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
                 break; 
             case KEY_LEFT:
@@ -195,21 +184,9 @@ int main()
                 update_current_dir(namelist[current_wnd], current_file, current_dir[first_wnd]);
                 current_wnd = first_wnd; 
 
-                while (files_number[current_wnd]--) 
-                {
-                    free(namelist[current_wnd][files_number[current_wnd]]);
-                }
-                free(namelist[current_wnd]);
+                if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
+                    break;
 
-                files_number[current_wnd] = scandir(current_dir[current_wnd], &namelist[current_wnd], no_rule, alphasort);
-                if (files_number[current_wnd] < 0)
-                {
-                    error_msg = strerror(errno);
-                    move(window_strings + 3, window_columns+2 - strlen(error_msg)/2);
-                    printw("%s", error_msg);
-                    refresh();
-                    return RETURN_ERR; 
-                } 
                 update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
                 break;
             case _KEY_ENTER:
@@ -217,26 +194,14 @@ int main()
                     break;
                 current_file = cursore_string;
 
-                if(check_file_type(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
+                if( check_file_type(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name) )
                     break;
                 
-                update_current_dir(namelist[current_wnd], current_file, current_dir[current_wnd]);
+                update_current_dir(namelist[current_wnd], current_file, current_dir[current_wnd]);                
 
-                while (files_number[current_wnd]--) 
-                {
-                    free(namelist[current_wnd][files_number[current_wnd]]);
-                }
-                free(namelist[current_wnd]);
+                if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
+                    break;
 
-                files_number[current_wnd] = scandir(current_dir[current_wnd], &namelist[current_wnd], no_rule, alphasort);
-                if (files_number[current_wnd] < 0)
-                {
-                    error_msg = strerror(errno);
-                    move(window_strings + 3, window_columns+2 - strlen(error_msg)/2);
-                    printw("%s", error_msg);
-                    refresh();
-                    return RETURN_ERR; 
-                } 
                 update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
                 break;                 
             default:
@@ -327,6 +292,27 @@ void update_current_dir(struct dirent ** namelist, int file, char *dir)
         strcat(dir, "/");
         strcat(dir, namelist[file]->d_name);
     }
+}
+
+int scan_dir(struct dirent ***p_namelist, int *files, char *dir)
+{
+    char *error_msg;
+    struct dirent **namelist = *p_namelist;
+
+    while ((*files)--) 
+    {
+        free(namelist[(*files)]);
+    }
+    free(namelist);
+
+    (*files) = scandir(dir, p_namelist, no_rule, alphasort);
+    if ((*files) < 0)
+    {
+        error_msg = strerror(errno);
+        print_error_msg(error_msg);
+        return RETURN_ERR; 
+    } 
+    return RETURN_OK; 
 }
 
 void update_window(WINDOW * wnd, struct dirent ** namelist, int files)
