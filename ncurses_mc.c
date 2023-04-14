@@ -56,7 +56,7 @@ enum windows {
 int check_file_type(struct stat *sb, char *dir, char *file);
 void update_current_dir(struct dirent ** namelist, int file, char *dir);
 int scan_dir(struct dirent ***p_namelist, int *files, char *dir);
-void update_window(WINDOW * wnd, struct dirent ** namelist, int files);
+void update_window(WINDOW * wnd, struct dirent ** namelist, int last_file, int first_file);
 void print_error_msg(char *error_msg);
 void get_proc_bin_name(char *bin_name);
 void get_proc_bin_path(char *bin_path, char *bin_name);
@@ -89,7 +89,8 @@ int main()
     WINDOW * subwnd[all_wnd];
     char *error_msg;
     int i = 0, j = 0, files_number[all_wnd], ret;
-    int cursore_string, cursore_column;    
+    int cursore_string, cursore_column, last_string;
+    int first_window_string[all_wnd], last_window_string[all_wnd];     
     int input_simbol, current_file = 0, current_wnd = 0;
     char current_dir[all_wnd][1000];    
     struct dirent ** namelist[all_wnd];
@@ -120,6 +121,8 @@ int main()
 
     for(i = 0; i < all_wnd; i++)
     {
+        first_window_string[i] = 0;
+        last_window_string[i] = window_strings - 1; 
         box(wnd[i], '|', '-');
         subwnd[i] = derwin(wnd[i], window_strings, window_columns, 1, 1);
         keypad(wnd[i], TRUE);
@@ -156,16 +159,37 @@ int main()
                 break;
             case KEY_DOWN:
                 getyx(subwnd[current_wnd], cursore_string, cursore_column);
-                if(cursore_string+1 < files_number[current_wnd]) 
-                {
+                current_file = first_window_string[current_wnd] + cursore_string;
+                if(current_file >= last_window_string[current_wnd]) {
+                    first_window_string[current_wnd]++;
+                    last_window_string[current_wnd]++;
+                    last_string = files_number[current_wnd] < last_window_string[current_wnd]+1 ? files_number[current_wnd] : last_window_string[current_wnd]+1;
+                    update_window(subwnd[current_wnd], namelist[current_wnd], last_string, first_window_string[current_wnd]);
+                    wmove(subwnd[current_wnd], cursore_string, 0);
+                    wrefresh(subwnd[current_wnd]);
+                    break;
+                }
+                if(current_file+1 < files_number[current_wnd]) {
                     wmove(subwnd[current_wnd], ++cursore_string, cursore_column);
                     wrefresh(subwnd[current_wnd]);
                 }
                 break; 
             case KEY_UP:
                 getyx(subwnd[current_wnd], cursore_string, cursore_column);
-                wmove(subwnd[current_wnd], --cursore_string, cursore_column);
-                wrefresh(subwnd[current_wnd]);
+                current_file = first_window_string[current_wnd] + cursore_string;
+                if(current_file == first_window_string[current_wnd] && current_file > 0) {
+                    first_window_string[current_wnd]--;
+                    last_window_string[current_wnd]--;
+                    last_string = files_number[current_wnd] < last_window_string[current_wnd]+1 ? files_number[current_wnd] : last_window_string[current_wnd]+1;
+                    update_window(subwnd[current_wnd], namelist[current_wnd], last_string, first_window_string[current_wnd]);
+                    wmove(subwnd[current_wnd], cursore_string, 0);
+                    wrefresh(subwnd[current_wnd]);
+                    break;
+                }
+                if(current_file > first_window_string[current_wnd]) {
+                    wmove(subwnd[current_wnd], --cursore_string, cursore_column);
+                    wrefresh(subwnd[current_wnd]);
+                }
                 break;  
             case KEY_RIGHT:
                 if(current_wnd == second_wnd)
@@ -188,7 +212,10 @@ int main()
                 if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
                     break;
 
-                update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
+                last_string = files_number[current_wnd] < last_window_string[current_wnd]+1 ? files_number[current_wnd] : last_window_string[current_wnd]+1;
+                update_window(subwnd[current_wnd], namelist[current_wnd], last_string, 0);
+                wmove(subwnd[current_wnd], 0, 0);
+                wrefresh(subwnd[current_wnd]);
                 break; 
             case KEY_LEFT:
                 if(current_wnd == first_wnd)
@@ -211,7 +238,10 @@ int main()
                 if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
                     break;
 
-                update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
+                last_string = files_number[current_wnd] < last_window_string[current_wnd]+1 ? files_number[current_wnd] : last_window_string[current_wnd]+1;
+                update_window(subwnd[current_wnd], namelist[current_wnd], last_string, 0);
+                wmove(subwnd[current_wnd], 0, 0);
+                wrefresh(subwnd[current_wnd]);
                 break;
             case _KEY_ENTER:
                 if(cursore_string > files_number[current_wnd])
@@ -234,7 +264,10 @@ int main()
                     break;
                 }
 
-                update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
+                last_string = files_number[current_wnd] < last_window_string[current_wnd]+1 ? files_number[current_wnd] : last_window_string[current_wnd]+1;
+                update_window(subwnd[current_wnd], namelist[current_wnd], last_string, 0);
+                wmove(subwnd[current_wnd], 0, 0);
+                wrefresh(subwnd[current_wnd]);
                 break;                 
             default:
                 getyx(stdscr, cursore_string, cursore_column);
@@ -360,16 +393,15 @@ int scan_dir(struct dirent ***p_namelist, int *files, char *dir)
     return RETURN_OK; 
 }
 
-void update_window(WINDOW * wnd, struct dirent ** namelist, int files)
+void update_window(WINDOW * wnd, struct dirent ** namelist, int last_file, int first_file)
 {
     int i;
     werase(wnd);
     wmove(wnd, 0, 0);
-    for (i = 0; i < files; i++)
+    for (i = first_file; i < last_file; i++)
     {
         wprintw(wnd, "%s\n", namelist[i]->d_name);
     }                
-    wmove(wnd, 0, 0);
     wrefresh(wnd);
 }
 
