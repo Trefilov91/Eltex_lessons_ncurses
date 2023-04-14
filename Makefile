@@ -1,7 +1,6 @@
 
 
 CC = gcc
-BUILD_DIR = build
 
 EXE += ncurses_mc
 
@@ -11,16 +10,11 @@ ncurses_mc.c
 LIB = \
 -lncurses
 
-all: $(BUILD_DIR) $(EXE)
-
-$(BUILD_DIR):
-	mkdir $(BUILD_DIR)
+all: $(EXE)
 
 $(EXE): $(SRC)
-	$(CC) $^ $(LIB) -o $(BUILD_DIR)/$@
+	$(CC) $^ $(LIB) -o $@
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -f $(EXE)
 
-run:
-	./$(BUILD_DIR)/$(EXE)

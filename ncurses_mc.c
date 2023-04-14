@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #define _KEY_EXIT	'q'		
 #define _KEY_ENTER	0xa
@@ -49,14 +50,21 @@ enum windows {
 };
 
 
-int check_file_type(char *dir, char *file);
+int check_file_type(struct stat *sb, char *dir, char *file);
 void update_current_dir(struct dirent ** namelist, int file, char *dir);
 int scan_dir(struct dirent ***p_namelist, int *files, char *dir);
 void update_window(WINDOW * wnd, struct dirent ** namelist, int files);
 void print_error_msg(char *error_msg);
+void get_proc_bin_name(char *bin_name);
+void get_proc_bin_path(char *bin_path, char *bin_name);
+void get_proc_bin_stat(struct stat *sb);
+int check_read_rights(struct stat *bin, struct stat *chosen_file);
+int check_execut_rights(struct stat *bin, struct stat *chosen_file);
 
 struct winsize size;
 int window_strings, window_columns;
+struct stat bin_stat;
+struct stat chosen_file_stat;
 
 void sig_winch(int signo)
 {
@@ -124,7 +132,9 @@ int main()
         wmove(subwnd[i], 0, 0); 
         wrefresh(subwnd[i]);    
     }
-   
+
+    get_proc_bin_stat(&bin_stat);
+
     while(1)
     {
         input_simbol = getch();      
@@ -159,7 +169,7 @@ int main()
                     break;   
                 current_file = cursore_string;
 
-                if(check_file_type(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
+                if(check_file_type(&chosen_file_stat, current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
                     break;               
                 strcpy(current_dir[second_wnd], current_dir[first_wnd]);       
                 update_current_dir(namelist[current_wnd], current_file, current_dir[second_wnd]);
@@ -178,7 +188,7 @@ int main()
                     break;   
                 current_file = cursore_string;
 
-                if(check_file_type(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
+                if(check_file_type(&chosen_file_stat, current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
                     break;               
                 strcpy(current_dir[first_wnd], current_dir[second_wnd]);       
                 update_current_dir(namelist[current_wnd], current_file, current_dir[first_wnd]);
@@ -194,7 +204,7 @@ int main()
                     break;
                 current_file = cursore_string;
 
-                if( check_file_type(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name) )
+                if( check_file_type(&chosen_file_stat, current_dir[current_wnd], namelist[current_wnd][current_file]->d_name) )
                     break;
                 
                 update_current_dir(namelist[current_wnd], current_file, current_dir[current_wnd]);                
@@ -233,48 +243,55 @@ int main()
     return 0;
 }
 
- int check_file_type(char *dir, char *file)
+ int check_file_type(struct stat *sb, char *dir, char *file)
  {
-    struct stat sb;
-    char *file_type_txt = NULL;
+    char *msg_txt = NULL;
     char *file_path = malloc(strlen(dir) + strlen(file) + 2);
-    strcpy(file_path, dir);
-    strcat(file_path, "/");
-    strcat(file_path, file);
+    sprintf(file_path, "%s/%s", dir, file);
 
     move(window_strings + 3, 0);
     clrtoeol();
     refresh();
     
-    if (lstat(file_path, &sb) < 0) {     
+    if (lstat(file_path, sb) < 0) {     
         char *error_msg = strerror(errno);
         print_error_msg(error_msg); 
         free(file_path);      
         return RETURN_ERR;
     }
+    free(file_path);
 
-    if((sb.st_mode & S_IROTH) != S_IROTH) {
-        print_error_msg(OPEN_ERR_TXT);
-        free(file_path);
-        return RETURN_ERR;
-    }
-
-    switch (sb.st_mode & S_IFMT) 
+    switch (sb->st_mode & S_IFMT) 
     {
-        case S_IFBLK:  file_type_txt = S_IFBLK_TXT;     break;
-        case S_IFCHR:  file_type_txt = S_IFCHR_TXT;     break;
-        case S_IFDIR:  free(file_path);                 return RETURN_OK;
-        case S_IFIFO:  file_type_txt = S_IFIFO_TXT;     break;
-        case S_IFLNK:  free(file_path);                 return RETURN_OK;
-        case S_IFREG:  file_type_txt = S_IFREG_TXT;     break;
-        case S_IFSOCK: file_type_txt = S_IFSOCK_TXT;    break;
-        default:       file_type_txt = S_UNKNOWN_TXT;   break;
+        case S_IFBLK:  msg_txt = S_IFBLK_TXT;     break;
+        case S_IFCHR:  msg_txt = S_IFCHR_TXT;     break;
+        case S_IFDIR:
+            if(check_read_rights(&bin_stat, sb)){
+                msg_txt = OPEN_ERR_TXT;
+                break;
+            }                 
+            return RETURN_OK;
+        case S_IFIFO:  msg_txt = S_IFIFO_TXT;     break;
+        case S_IFLNK:
+            if(check_read_rights(&bin_stat, sb)){
+                msg_txt = OPEN_ERR_TXT;
+                break;
+            }   
+            return RETURN_OK;
+        case S_IFREG:
+            if(check_execut_rights(&bin_stat, sb)){
+                msg_txt = OPEN_ERR_TXT;
+                break;
+            }
+            msg_txt = S_IFREG_TXT;     
+            break;
+        case S_IFSOCK: msg_txt = S_IFSOCK_TXT;    break;
+        default:       msg_txt = S_UNKNOWN_TXT;   break;
     } 
 
     move(window_strings + 3, window_columns+2 - strlen(file));
-    printw("%s %s", file, file_type_txt);
+    printw("%s %s", file, msg_txt);
     refresh();
-    free(file_path);
     return RETURN_ERR;
  }
 
@@ -335,4 +352,81 @@ void print_error_msg(char *error_msg)
     move(window_strings + 3, window_columns+2 - strlen(error_msg)/2);
     printw("%s", error_msg);
     refresh();
+}
+
+void get_proc_bin_name(char *bin_name)
+{
+    pid_t pid = getpid();
+    char proc_path[100];
+    char buf[512];
+    char *token = NULL;
+    int fd, readed_bytes;
+
+    sprintf(proc_path, "/proc/%ld/stat", (long)pid);
+    fd = open(proc_path, O_RDONLY, S_IRWXO | S_IRWXU | S_IRWXG);
+    if(fd < 0) {
+        printf("can not open file %s\n", proc_path);
+        close(fd);
+        return;
+    }
+    readed_bytes = read(fd, buf, sizeof(buf));
+    if(readed_bytes < 0) {
+        printf("can not read file %s\n", proc_path);
+        close(fd);
+        return;
+    }
+
+    token = strtok(buf, " ()");
+    token = strtok(NULL, " ()");
+    strcpy(bin_name, token);
+}
+
+void get_proc_bin_path(char *bin_path, char *bin_name)
+{
+    char dir_path[500];
+    getcwd(dir_path, sizeof(dir_path));
+    sprintf(bin_path, "%s/%s", dir_path, bin_name);
+}
+
+void get_proc_bin_stat(struct stat *sb)
+{
+    char bin_name[50];
+    char bin_path[500];
+    get_proc_bin_name(bin_name);    
+    get_proc_bin_path(bin_path, bin_name);
+    lstat(bin_path, sb);
+}
+
+int check_read_rights(struct stat *bin, struct stat *chosen_file)
+{
+    mode_t mode = 0; 
+    mode |= S_IROTH;
+
+    if(bin->st_gid == chosen_file->st_gid)
+         mode |= S_IRGRP;
+
+    if(bin->st_uid == chosen_file->st_uid)
+         mode |= S_IRUSR;
+
+    if(chosen_file->st_mode & mode) {
+        return RETURN_OK;
+    }   
+    return RETURN_ERR;
+}
+
+int check_execut_rights(struct stat *bin, struct stat *chosen_file)
+{
+    mode_t mode = 0;
+    mode |= S_IXOTH;
+
+    if(bin->st_gid == chosen_file->st_gid)
+         mode |= S_IXGRP;
+
+    if(bin->st_uid == chosen_file->st_uid)
+         mode |= S_IXUSR;
+
+    if(chosen_file->st_mode & mode) {
+        return RETURN_OK;
+    }   
+    return RETURN_ERR;
 }
