@@ -12,6 +12,9 @@
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 #define _KEY_EXIT	'q'		
 #define _KEY_ENTER	0xa
@@ -60,11 +63,13 @@ void get_proc_bin_path(char *bin_path, char *bin_name);
 void get_proc_bin_stat(struct stat *sb);
 int check_read_rights(struct stat *bin, struct stat *chosen_file);
 int check_execut_rights(struct stat *bin, struct stat *chosen_file);
+void make_exec(char *file_path, char *file_name);
 
 struct winsize size;
 int window_strings, window_columns;
 struct stat bin_stat;
 struct stat chosen_file_stat;
+int fork_counter = 0;
 
 void sig_winch(int signo)
 {
@@ -89,6 +94,7 @@ int main()
     char current_dir[all_wnd][1000];    
     struct dirent ** namelist[all_wnd];
     const char *help_txt[HELP_TXT_NUMBER] = {OPEN_HELP_TXT, CHANGE_HELP_TXT, NAVIGATE_HELP_TXT, OPEN_ANOTHER_HELP_TXT, EXIT_HELP_TXT};  
+    int proc_status;  
 
     ioctl(fileno(stdout), TIOCGWINSZ, (char *) &size);
     window_columns = size.ws_col/2 - 4;
@@ -171,6 +177,10 @@ int main()
 
                 if(check_file_type(&chosen_file_stat, current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
                     break;               
+
+                if(!(chosen_file_stat.st_mode & (S_IFDIR | S_IFLNK)))
+                    break; 
+
                 strcpy(current_dir[second_wnd], current_dir[first_wnd]);       
                 update_current_dir(namelist[current_wnd], current_file, current_dir[second_wnd]);
                 current_wnd = second_wnd; 
@@ -190,6 +200,10 @@ int main()
 
                 if(check_file_type(&chosen_file_stat, current_dir[current_wnd], namelist[current_wnd][current_file]->d_name))
                     break;               
+
+                if(!(chosen_file_stat.st_mode & (S_IFDIR | S_IFLNK)))
+                    break;                    
+
                 strcpy(current_dir[first_wnd], current_dir[second_wnd]);       
                 update_current_dir(namelist[current_wnd], current_file, current_dir[first_wnd]);
                 current_wnd = first_wnd; 
@@ -209,8 +223,16 @@ int main()
                 
                 update_current_dir(namelist[current_wnd], current_file, current_dir[current_wnd]);                
 
-                if( scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]) )
+                switch (chosen_file_stat.st_mode & S_IFMT)
+                {
+                case S_IFDIR:
+                case S_IFLNK:
+                    scan_dir(&namelist[current_wnd], &files_number[current_wnd], current_dir[current_wnd]);
                     break;
+                case S_IFREG:
+                    make_exec(current_dir[current_wnd], namelist[current_wnd][current_file]->d_name);
+                    break;
+                }
 
                 update_window(subwnd[current_wnd], namelist[current_wnd], files_number[current_wnd]);
                 break;                 
@@ -224,6 +246,10 @@ int main()
 
     }
     
+    while(fork_counter--) {
+        wait(&proc_status);
+    }
+
     for(i = 0; i < all_wnd; i++)
     {
         delwin(subwnd[i]);
@@ -282,9 +308,8 @@ int main()
             if(check_execut_rights(&bin_stat, sb)){
                 msg_txt = OPEN_ERR_TXT;
                 break;
-            }
-            msg_txt = S_IFREG_TXT;     
-            break;
+            }   
+            return RETURN_OK;
         case S_IFSOCK: msg_txt = S_IFSOCK_TXT;    break;
         default:       msg_txt = S_UNKNOWN_TXT;   break;
     } 
@@ -303,7 +328,10 @@ void update_current_dir(struct dirent ** namelist, int file, char *dir)
     }
     else if(!strcmp(namelist[file]->d_name, PREVIOUS_DIR)){
         str_index = rindex(dir, '/');          
-        *str_index = '\0';
+        if(str_index != dir)         
+            *str_index = '\0';
+        else
+            *(str_index + 1) = '\0';
     }
     else {
         strcat(dir, "/");
@@ -429,4 +457,17 @@ int check_execut_rights(struct stat *bin, struct stat *chosen_file)
         return RETURN_OK;
     }   
     return RETURN_ERR;
+}
+
+void make_exec(char *file_path, char *file_name)
+{
+    pid_t child_pid;
+    child_pid = fork();
+    if(child_pid == 0){
+        execl(file_path, file_name, NULL);
+        exit(EXIT_SUCCESS);
+    }
+    else {
+        fork_counter++;
+    }
 }
